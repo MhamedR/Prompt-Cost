@@ -1,3 +1,4 @@
+import type { AttachmentPayload } from "../media/estimate";
 import type { ProviderId } from "../types";
 import type { PromptComparison } from "../analysis/compare";
 import type { DistributionShare } from "../analysis/distribution";
@@ -28,6 +29,9 @@ export interface CostView {
   inputCost: string;
   outputCost: string;
   totalCost: string;
+  inputAmount: number;
+  outputAmount: number;
+  totalAmount: number;
   inputTokens: number;
   outputTokens: number;
   tierNote: string;
@@ -49,6 +53,7 @@ export interface AnalysisView {
   charsPerToken: string;
   distribution: DistributionShare[];
   distributionNote: string;
+  attachmentTokens: number;
   cost: CostView;
 }
 
@@ -63,7 +68,7 @@ export interface DashboardSnapshot {
   providers: Array<{ id: ProviderId; label: string }>;
   models: ModelView[];
   sourceMode: SourceMode;
-  resolvedSource: "document" | "selection" | "none";
+  resolvedSource: "document" | "selection" | "prompt";
   sourceLabel: string;
   analysis: AnalysisView | null;
   error: string | null;
@@ -82,21 +87,23 @@ export interface DashboardSnapshot {
   apiCount: ApiCountView | null;
   apiError: string | null;
   focusToken: number;
+  maxCharacters: number;
   disclaimer: string;
 }
 
 export type WebviewToHost =
   | { type: "ready" }
   | { type: "setModel"; providerId: string; modelId: string }
-  | { type: "setSource"; source: SourceMode }
   | { type: "setExpectedOutputTokens"; tokens: number }
   | { type: "setPriceOverride"; inputPerMillion: number; outputPerMillion: number }
   | { type: "clearPriceOverride" }
-  | { type: "compare"; left: string; right: string }
-  | { type: "seedCompare"; side: "left" | "right"; source: "document" | "selection" }
+  | { type: "setPrompt"; text: string }
+  | { type: "setAttachments"; attachments: AttachmentPayload[] }
+  | { type: "useEditor"; source: "document" | "selection" }
+  | { type: "compare"; left: string; right: string; leftAttachments: AttachmentPayload[]; rightAttachments: AttachmentPayload[] }
   | { type: "countWithApi" };
 
 export type HostToWebview =
   | { type: "snapshot"; snapshot: DashboardSnapshot }
   | { type: "comparison"; result: PromptComparison | null; error: string | null }
-  | { type: "compareSeed"; side: "left" | "right"; text: string };
+  | { type: "promptText"; text: string; error: string | null };

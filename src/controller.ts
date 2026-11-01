@@ -1,11 +1,19 @@
-import * as path from "node:path";
 import * as vscode from "vscode";
 import { analyzeText } from "./analysis/analyze";
 import { compareTokenCounts } from "./analysis/compare";
 import { accuracyLabel, formatRatio, formatUsd } from "./analysis/format";
 import { countWithProviderApi } from "./api/providerApi";
 import { COMMANDS, EDITOR_DISCLAIMER, OUTPUT_CHANNEL, VIEW_ID } from "./constants";
+import { registerPromptCostMcpServer, showMcpSetup } from "./mcp/register";
 import { readSettings, type AnalyzerSettings } from "./configuration/settings";
+import { rememberSelection, textFromEditor, isEditorScheme, type SelectionChangeKind } from "./editorText";
+import {
+  attachmentKey,
+  estimateAttachments,
+  sanitizeAttachments,
+  textForCounting,
+  type AttachmentPayload,
+} from "./media/estimate";
 import { PROVIDER_LABELS, defaultModelFor, getModel, modelsForProvider } from "./models/catalog";
 import { calculateCost, selectTier } from "./pricing/calculator";
 import { apiProviderId, secretKey, type ApiProviderId } from "./secrets/apiKeys";
@@ -17,7 +25,6 @@ import { TextTooLongError } from "./tokenization/result";
 import type { ModelSpec, PriceOverride, ProviderId } from "./types";
 import { isProviderId } from "./types";
 import type { DashboardSnapshot, ModelView, SourceMode, WebviewToHost } from "./webview/protocol";
-import { isSourceMode } from "./configuration/settings";
 
 export class AnalyzerController implements vscode.Disposable {
   private readonly statusBar = new TokenStatusBar();
@@ -38,6 +45,12 @@ export class AnalyzerController implements vscode.Disposable {
   private analysisError: string | null = null;
   private postGeneration = 0;
   private countedKey = "";
+  private promptText = "";
+  private attachments: AttachmentPayload[] = [];
+  private promptOrigin: "prompt" | "document" | "selection" = "prompt";
+  private queuedPrompt: { text: string; error: string | null } | null = null;
+  private trackedEditor: vscode.TextEditor | undefined;
+  private selectionSnapshot = "";
   private comparison: { result: ReturnType<typeof compareTokenCounts> | null; error: string | null } = {
     result: null,
     error: null,
@@ -56,6 +69,9 @@ export class AnalyzerController implements vscode.Disposable {
       () => {
         this.postSnapshot();
         this.postComparison();
+        if (this.queuedPrompt) {
+          this.sidebar.post({ type: "promptText", ...this.queuedPrompt });
+        }
       },
     );
   }
@@ -69,14 +85,10 @@ export class AnalyzerController implements vscode.Disposable {
         webviewOptions: { retainContextWhenHidden: true },
       }),
       vscode.commands.registerCommand(COMMANDS.analyzeDocument, () => {
-        this.sourceMode = "document";
-        void this.reveal();
-        this.schedule(true);
+        void this.useEditor("document");
       }),
       vscode.commands.registerCommand(COMMANDS.analyzeSelection, () => {
-        this.sourceMode = "selection";
-        void this.reveal();
-        this.schedule(true);
+        void this.useEditor("selection");
       }),
       vscode.commands.registerCommand(COMMANDS.open, () => {
         void this.reveal();
@@ -95,13 +107,17 @@ export class AnalyzerController implements vscode.Disposable {
       vscode.commands.registerCommand(COMMANDS.clearApiKey, () => {
         void this.clearApiKey();
       }),
-      vscode.window.onDidChangeActiveTextEditor(() => this.schedule(false)),
-      vscode.window.onDidChangeTextEditorSelection(() => this.schedule(false)),
-      vscode.workspace.onDidChangeTextDocument((event) => {
-        const active = vscode.window.activeTextEditor;
-        if (active && event.document === active.document) {
-          this.schedule(false);
-        }
+      vscode.commands.registerCommand(COMMANDS.configureMcp, () => {
+        void showMcpSetup(this.context);
+      }),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        this.noteEditor(editor);
+      }),
+      vscode.window.onDidChangeVisibleTextEditors(() => {
+        this.rememberVisibleEditors();
+      }),
+      vscode.window.onDidChangeTextEditorSelection((event) => {
+        this.noteSelection(event.textEditor, event.kind);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("promptCost")) {
@@ -110,6 +126,15 @@ export class AnalyzerController implements vscode.Disposable {
         }
       }),
     );
+    const mcp = registerPromptCostMcpServer(this.context);
+    if (mcp) {
+      this.subscriptions.push(mcp);
+    }
+    this.rememberVisibleEditors();
+    this.noteEditor(vscode.window.activeTextEditor);
+    if (this.trackedEditor) {
+      this.selectionSnapshot = selectedText(this.trackedEditor);
+    }
     this.schedule(true);
   }
 
@@ -140,8 +165,9 @@ export class AnalyzerController implements vscode.Disposable {
   private async recount(): Promise<void> {
     const generation = ++this.generation;
     const model = this.currentModel();
-    const resolved = this.resolveText();
-    const countedKey = `${model.id}\n${resolved.kind}\n${resolved.text}`;
+    const resolved = this.promptSource();
+    const countedText = textForCounting(resolved.text, this.attachments);
+    const countedKey = `${model.id}\n${resolved.kind}\n${countedText}\n${attachmentKey(this.attachments)}`;
     if (countedKey !== this.countedKey) {
       const modelChanged = !this.countedKey.startsWith(`${model.id}\n`);
       this.apiCount = null;
@@ -164,13 +190,29 @@ export class AnalyzerController implements vscode.Disposable {
       const provider = loadProvider(this.context.extensionPath, model.providerId);
       const priceOverride = this.overrideFor(model.id);
       const analysis = await analyzeText({
-        text: resolved.text,
+        text: countedText,
         model,
         provider,
         expectedOutputTokens: this.state.expectedOutputTokens,
         maxCharacters: this.settings.maxCharacters,
         ...(priceOverride ? { priceOverride } : {}),
       });
+      const media = estimateAttachments({
+        providerId: model.providerId,
+        modelId: model.id,
+        attachments: this.attachments,
+      });
+      const totalTokens = analysis.tokens.count + media.tokens;
+      const cost = calculateCost({
+        inputTokens: totalTokens,
+        outputTokens: this.state.expectedOutputTokens,
+        pricing: model.pricing,
+        ...(priceOverride ? { override: priceOverride } : {}),
+      });
+      const accuracy = media.tokens > 0 ? "approximate" as const : analysis.tokens.accuracy;
+      const summary = media.tokens > 0
+        ? `${analysis.tokens.summary} Attached files add about ${media.tokens.toLocaleString("en-US")} tokens.`
+        : analysis.tokens.summary;
       if (generation !== this.generation) {
         return;
       }
@@ -179,42 +221,46 @@ export class AnalyzerController implements vscode.Disposable {
       const showCost = analysis.cost.inputPerMillion > 0 || analysis.cost.outputPerMillion > 0 || analysis.cost.usingOverride;
       if (this.settings.statusBarEnabled) {
         this.statusBar.showResult({
-          tokens: analysis.tokens.count,
-          totalCost: analysis.cost.totalCost,
+          tokens: totalTokens,
+          totalCost: cost.totalCost,
           showCost,
-          accuracy: accuracyLabel(analysis.tokens.accuracy),
+          accuracy: accuracyLabel(accuracy),
           modelLabel: model.label,
-          summary: analysis.tokens.summary,
-          sourceLabel: resolved.label,
+          summary,
+          sourceLabel: this.sourceLabel(resolved.label),
         });
       } else {
         this.statusBar.hide();
       }
       this.analysis = {
-        tokens: analysis.tokens.count,
-        accuracy: analysis.tokens.accuracy,
-        accuracyLabel: accuracyLabel(analysis.tokens.accuracy),
+        tokens: totalTokens,
+        accuracy,
+        accuracyLabel: accuracyLabel(accuracy),
         tokenizer: analysis.tokens.tokenizer,
-        summary: analysis.tokens.summary,
-        warnings: analysis.tokens.warnings,
+        summary,
+        warnings: [...analysis.tokens.warnings, ...media.warnings],
         characters: analysis.textStats.characters,
         words: analysis.textStats.words,
         lines: analysis.textStats.lines,
         charsPerToken: formatRatio(analysis.textStats.charsPerToken),
         distribution: analysis.distribution,
         distributionNote: analysis.distributionNote,
+        attachmentTokens: media.tokens,
         cost: {
-          inputPerMillion: analysis.cost.inputPerMillion,
-          outputPerMillion: analysis.cost.outputPerMillion,
-          inputCost: formatUsd(analysis.cost.inputCost),
-          outputCost: formatUsd(analysis.cost.outputCost),
-          totalCost: formatUsd(analysis.cost.totalCost),
-          inputTokens: analysis.cost.inputTokens,
-          outputTokens: analysis.cost.outputTokens,
-          tierNote: analysis.cost.tierNote,
+          inputPerMillion: cost.inputPerMillion,
+          outputPerMillion: cost.outputPerMillion,
+          inputCost: formatUsd(cost.inputCost),
+          outputCost: formatUsd(cost.outputCost),
+          totalCost: formatUsd(cost.totalCost),
+          inputAmount: cost.inputCost,
+          outputAmount: cost.outputCost,
+          totalAmount: cost.totalCost,
+          inputTokens: cost.inputTokens,
+          outputTokens: cost.outputTokens,
+          tierNote: cost.tierNote,
           pricingKind: model.pricing.kind,
-          pricingNotes: analysis.cost.pricingNotes,
-          usingOverride: analysis.cost.usingOverride,
+          pricingNotes: cost.pricingNotes,
+          usingOverride: cost.usingOverride,
         },
       };
       this.postSnapshot();
@@ -257,11 +303,18 @@ export class AnalyzerController implements vscode.Disposable {
         await this.setModel(message.providerId, model.id);
         return;
       }
-      case "setSource":
-        if (isSourceMode(message.source)) {
-          this.sourceMode = message.source;
-          this.schedule(true);
-        }
+      case "setPrompt":
+        this.promptText = message.text;
+        this.promptOrigin = "prompt";
+        this.queuedPrompt = null;
+        this.schedule(true);
+        return;
+      case "setAttachments":
+        this.attachments = sanitizeAttachments(message.attachments, this.settings.maxCharacters);
+        this.schedule(true);
+        return;
+      case "useEditor":
+        await this.useEditor(message.source);
         return;
       case "setExpectedOutputTokens":
         if (Number.isFinite(message.tokens) && message.tokens >= 0) {
@@ -287,14 +340,7 @@ export class AnalyzerController implements vscode.Disposable {
         return;
       }
       case "compare":
-        await this.compare(message.left, message.right);
-        return;
-      case "seedCompare":
-        this.sidebar.post({
-          type: "compareSeed",
-          side: message.side,
-          text: this.textFor(message.source),
-        });
+        await this.compare(message.left, message.right, message.leftAttachments, message.rightAttachments);
         return;
       case "countWithApi":
         await this.countWithApi();
@@ -315,19 +361,48 @@ export class AnalyzerController implements vscode.Disposable {
     this.schedule(true);
   }
 
-  private async compare(left: string, right: string): Promise<void> {
+  private async compare(left: string, right: string, leftAttachments: unknown, rightAttachments: unknown): Promise<void> {
+    const leftFiles = sanitizeAttachments(leftAttachments, this.settings.maxCharacters);
+    const rightFiles = sanitizeAttachments(rightAttachments, this.settings.maxCharacters);
+    if (right.length === 0 && rightFiles.length === 0) {
+      this.comparison = { result: null, error: null };
+      this.postComparison();
+      return;
+    }
     const model = this.currentModel();
+    const leftText = textForCounting(left, leftFiles);
+    const rightText = textForCounting(right, rightFiles);
     try {
       const provider = loadProvider(this.context.extensionPath, model.providerId);
-      if (left.length > this.settings.maxCharacters || right.length > this.settings.maxCharacters) {
-        throw new TextTooLongError(Math.max(left.length, right.length), this.settings.maxCharacters);
+      if (leftText.length > this.settings.maxCharacters || rightText.length > this.settings.maxCharacters) {
+        throw new TextTooLongError(Math.max(leftText.length, rightText.length), this.settings.maxCharacters);
       }
       const [leftCount, rightCount] = await Promise.all([
-        provider.countTokens(left, model.id),
-        provider.countTokens(right, model.id),
+        provider.countTokens(leftText, model.id),
+        provider.countTokens(rightText, model.id),
       ]);
+      const leftMedia = estimateAttachments({ providerId: model.providerId, modelId: model.id, attachments: leftFiles });
+      const rightMedia = estimateAttachments({ providerId: model.providerId, modelId: model.id, attachments: rightFiles });
+      const leftTokens = leftCount.count + leftMedia.tokens;
+      const rightTokens = rightCount.count + rightMedia.tokens;
+      const override = this.overrideFor(model.id);
+      const leftCost = calculateCost({
+        inputTokens: leftTokens,
+        outputTokens: 0,
+        pricing: model.pricing,
+        ...(override ? { override } : {}),
+      });
+      const rightCost = calculateCost({
+        inputTokens: rightTokens,
+        outputTokens: 0,
+        pricing: model.pricing,
+        ...(override ? { override } : {}),
+      });
       this.comparison = {
-        result: compareTokenCounts(leftCount.count, rightCount.count),
+        result: compareTokenCounts(leftTokens, rightTokens, {
+          leftInputCost: leftCost.inputCost,
+          rightInputCost: rightCost.inputCost,
+        }),
         error: null,
       };
     } catch (error) {
@@ -367,9 +442,13 @@ export class AnalyzerController implements vscode.Disposable {
       }
       return;
     }
-    const resolved = this.resolveText();
+    const text = this.promptText;
+    if (text.length === 0) {
+      void vscode.window.showInformationMessage("Enter a prompt before requesting a provider count.");
+      return;
+    }
     const confirmed = await vscode.window.showWarningMessage(
-      `Send ${resolved.text.length.toLocaleString("en-US")} characters of editor text to ${PROVIDER_LABELS[model.providerId]} for a token count? This extension does not store that text.`,
+      `Send ${text.length.toLocaleString("en-US")} characters of the prompt to ${PROVIDER_LABELS[model.providerId]} for a token count? This extension does not store that text.`,
       { modal: true },
       "Send",
     );
@@ -383,7 +462,7 @@ export class AnalyzerController implements vscode.Disposable {
       const result = await countWithProviderApi({
         providerId: apiProvider,
         modelId: model.apiModelId,
-        text: resolved.text,
+        text,
         apiKey,
       });
       this.apiCount = result;
@@ -451,40 +530,146 @@ export class AnalyzerController implements vscode.Disposable {
     return model;
   }
 
+  private async useEditor(source: "document" | "selection"): Promise<void> {
+    this.captureEditor();
+    const picked = await this.editorText(source);
+    await this.reveal();
+    if (picked.error) {
+      const message = { text: this.promptText, error: picked.error };
+      this.queuedPrompt = message;
+      this.sidebar.post({ type: "promptText", ...message });
+      void vscode.window.showInformationMessage(picked.error);
+      return;
+    }
+    this.promptText = picked.text;
+    this.promptOrigin = source;
+    const message = { text: picked.text, error: null };
+    this.queuedPrompt = message;
+    this.sidebar.post({ type: "promptText", ...message });
+    this.schedule(true);
+  }
+
+  private promptSource(): { text: string; label: string; kind: "document" | "selection" | "prompt" } {
+    if (this.promptOrigin === "document") {
+      return { text: this.promptText, label: "From document", kind: "document" };
+    }
+    if (this.promptOrigin === "selection") {
+      return { text: this.promptText, label: "From selection", kind: "selection" };
+    }
+    return { text: this.promptText, label: "Prompt", kind: "prompt" };
+  }
+
+  private sourceLabel(label: string): string {
+    const count = this.attachments.length;
+    if (count === 0) {
+      return label;
+    }
+    return `${label} · ${count} ${count === 1 ? "file" : "files"}`;
+  }
+
+  private captureEditor(): void {
+    this.rememberVisibleEditors();
+    this.noteEditor(vscode.window.activeTextEditor);
+    if (!this.trackedEditor) {
+      return;
+    }
+    const live = selectedText(this.trackedEditor);
+    if (live.length > 0) {
+      this.selectionSnapshot = live;
+    }
+  }
+
+  private async editorText(source: "document" | "selection"): Promise<{ text: string; error: string | null }> {
+    const editor = this.editor();
+    if (editor) {
+      const live = selectedText(editor);
+      if (live.length > 0) {
+        this.selectionSnapshot = live;
+      }
+      return textFromEditor({
+        hasEditor: true,
+        documentText: editor.document.getText(),
+        liveSelection: live,
+        selectionSnapshot: this.selectionSnapshot,
+        source,
+      });
+    }
+    if (source === "selection" && this.selectionSnapshot.length > 0) {
+      return { text: this.selectionSnapshot, error: null };
+    }
+    const fromTab = await this.textFromOpenTab();
+    if (source === "document" && fromTab !== undefined) {
+      if (fromTab.length === 0) {
+        return { text: "", error: "The document is empty." };
+      }
+      return { text: fromTab, error: null };
+    }
+    return textFromEditor({
+      hasEditor: false,
+      documentText: "",
+      liveSelection: "",
+      selectionSnapshot: this.selectionSnapshot,
+      source,
+    });
+  }
+
+  private editor(): vscode.TextEditor | undefined {
+    const active = vscode.window.activeTextEditor;
+    if (active && isCountableDocument(active.document)) {
+      this.trackedEditor = active;
+      return active;
+    }
+    const tracked = this.trackedEditor;
+    if (tracked && !tracked.document.isClosed && isCountableDocument(tracked.document)) {
+      return tracked;
+    }
+    const visible = vscode.window.visibleTextEditors.find((editor) => isCountableDocument(editor.document));
+    if (visible) {
+      this.trackedEditor = visible;
+      return visible;
+    }
+    return undefined;
+  }
+
+  private rememberVisibleEditors(): void {
+    const visible = vscode.window.visibleTextEditors.find((editor) => isCountableDocument(editor.document));
+    if (visible) {
+      this.trackedEditor = visible;
+    }
+  }
+
+  private async textFromOpenTab(): Promise<string | undefined> {
+    for (const uri of editorTabUris()) {
+      const open = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
+      try {
+        const document = open ?? await vscode.workspace.openTextDocument(uri);
+        return document.getText();
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  private noteEditor(editor: vscode.TextEditor | undefined): void {
+    if (!editor || !isCountableDocument(editor.document)) {
+      return;
+    }
+    this.trackedEditor = editor;
+  }
+
+  private noteSelection(editor: vscode.TextEditor, kind: vscode.TextEditorSelectionChangeKind | undefined): void {
+    this.noteEditor(editor);
+    this.selectionSnapshot = rememberSelection(this.selectionSnapshot, selectedText(editor), selectionKind(kind));
+  }
+
   private overrideFor(modelId: string): PriceOverride | undefined {
     return this.state.priceOverrides[modelId];
   }
 
-  private resolveText(): { text: string; label: string; kind: "document" | "selection" | "none" } {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return { text: "", label: "No active editor", kind: "none" };
-    }
-    const name = path.basename(editor.document.fileName);
-    if (this.sourceMode === "document") {
-      return { text: editor.document.getText(), label: name, kind: "document" };
-    }
-    if (this.sourceMode === "selection") {
-      return { text: selectedText(editor), label: "Selection", kind: "selection" };
-    }
-    const selection = selectedText(editor);
-    if (selection.length > 0) {
-      return { text: selection, label: "Selection", kind: "selection" };
-    }
-    return { text: editor.document.getText(), label: name, kind: "document" };
-  }
-
-  private textFor(source: "document" | "selection"): string {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return "";
-    }
-    return source === "document" ? editor.document.getText() : selectedText(editor);
-  }
-
   private buildSnapshot(
     model: NonNullable<ReturnType<typeof getModel>>,
-    resolved: { text: string; label: string; kind: "document" | "selection" | "none" },
+    resolved: { text: string; label: string; kind: "document" | "selection" | "prompt" },
     analysis: DashboardSnapshot["analysis"],
     error: string | null,
   ): DashboardSnapshot {
@@ -523,7 +708,7 @@ export class AnalyzerController implements vscode.Disposable {
       models,
       sourceMode: this.sourceMode,
       resolvedSource: resolved.kind,
-      sourceLabel: resolved.label,
+      sourceLabel: this.sourceLabel(resolved.label),
       analysis,
       error,
       counting: this.counting,
@@ -541,13 +726,14 @@ export class AnalyzerController implements vscode.Disposable {
       apiCount: this.apiCount,
       apiError: this.apiError,
       focusToken: this.focusToken,
+      maxCharacters: this.settings.maxCharacters,
       disclaimer: EDITOR_DISCLAIMER,
     };
   }
 
   private postSnapshot(): void {
     const generation = ++this.postGeneration;
-    const snapshot = this.buildSnapshot(this.currentModel(), this.resolveText(), this.analysis, this.analysisError);
+    const snapshot = this.buildSnapshot(this.currentModel(), this.promptSource(), this.analysis, this.analysisError);
     void this.attachKeyFlag(snapshot).then((withKey) => {
       if (generation === this.postGeneration) {
         this.sidebar.post({ type: "snapshot", snapshot: withKey });
@@ -578,6 +764,68 @@ function selectedText(editor: vscode.TextEditor): string {
     .filter((selection) => !selection.isEmpty)
     .map((selection) => editor.document.getText(selection))
     .join("\n");
+}
+
+function selectionKind(kind: vscode.TextEditorSelectionChangeKind | undefined): SelectionChangeKind | undefined {
+  if (kind === vscode.TextEditorSelectionChangeKind.Keyboard) {
+    return "keyboard";
+  }
+  if (kind === vscode.TextEditorSelectionChangeKind.Mouse) {
+    return "mouse";
+  }
+  if (kind === vscode.TextEditorSelectionChangeKind.Command) {
+    return "command";
+  }
+  return undefined;
+}
+
+function isCountableDocument(document: vscode.TextDocument): boolean {
+  return isEditorScheme(document.uri.scheme);
+}
+
+function editorTabUris(): vscode.Uri[] {
+  const groups = [vscode.window.tabGroups.activeTabGroup, ...vscode.window.tabGroups.all];
+  const seen = new Set<string>();
+  const uris: vscode.Uri[] = [];
+  for (const group of groups) {
+    const tabs = group.activeTab ? [group.activeTab, ...group.tabs] : [...group.tabs];
+    for (const tab of tabs) {
+      const uri = uriFromTab(tab.input);
+      if (!uri || !isEditorScheme(uri.scheme)) {
+        continue;
+      }
+      const key = uri.toString();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      uris.push(uri);
+    }
+  }
+  return uris;
+}
+
+function uriFromTab(input: unknown): vscode.Uri | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  if (input instanceof vscode.TabInputText) {
+    return input.uri;
+  }
+  if (input instanceof vscode.TabInputTextDiff) {
+    return input.modified;
+  }
+  if (input instanceof vscode.TabInputNotebook) {
+    return input.uri;
+  }
+  const record = input as { uri?: unknown; modified?: unknown };
+  if (record.modified instanceof vscode.Uri) {
+    return record.modified;
+  }
+  if (record.uri instanceof vscode.Uri) {
+    return record.uri;
+  }
+  return undefined;
 }
 
 function validPrice(value: number): boolean {

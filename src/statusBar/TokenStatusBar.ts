@@ -8,12 +8,12 @@ export class TokenStatusBar implements vscode.Disposable {
   constructor() {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     this.item.command = COMMANDS.open;
-    this.item.name = "PromptCost";
+    this.item.name = "Prompt Cost";
   }
 
   showCounting(): void {
     this.item.text = "$(sync~spin) Counting tokens";
-    this.item.tooltip = "PromptCost is counting the editor text locally.";
+    this.item.tooltip = "Prompt Cost is counting the prompt locally.";
     this.item.show();
   }
 
@@ -32,7 +32,7 @@ export class TokenStatusBar implements vscode.Disposable {
     tooltip.appendMarkdown(`**${escapeMarkdown(args.modelLabel)}**\n\n`);
     tooltip.appendMarkdown(`${escapeMarkdown(args.accuracy)} · ${escapeMarkdown(args.sourceLabel)}\n\n`);
     tooltip.appendMarkdown(`${escapeMarkdown(args.summary)}\n\n`);
-    tooltip.appendMarkdown("Click to open PromptCost. This is editor text, not the prompt an assistant sends.");
+    tooltip.appendMarkdown("Click to open Prompt Cost. This is the prompt in the sidebar, not the full prompt an assistant sends.");
     this.item.tooltip = tooltip;
     this.item.show();
   }

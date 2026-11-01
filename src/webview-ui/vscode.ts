@@ -13,5 +13,5 @@ export function isHostMessage(value: unknown): value is HostToWebview {
     return false;
   }
   const type = (value as { type: unknown }).type;
-  return type === "snapshot" || type === "comparison" || type === "compareSeed";
+  return type === "snapshot" || type === "comparison" || type === "promptText";
 }

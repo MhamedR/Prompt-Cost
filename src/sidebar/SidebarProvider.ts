@@ -48,6 +48,8 @@ function dashboardHtml(webview: vscode.Webview, extensionUri: vscode.Uri): strin
   const csp = [
     "default-src 'none'",
     `style-src ${webview.cspSource} 'unsafe-inline'`,
+    `img-src ${webview.cspSource} blob: data:`,
+    `media-src blob:`,
     `script-src 'nonce-${nonce}'`,
   ].join("; ");
   return `<!DOCTYPE html>
@@ -57,7 +59,7 @@ function dashboardHtml(webview: vscode.Webview, extensionUri: vscode.Uri): strin
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="${style}" />
-  <title>PromptCost</title>
+  <title>Prompt Cost</title>
 </head>
 <body>
   <div id="root"></div>

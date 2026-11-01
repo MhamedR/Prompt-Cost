@@ -55,17 +55,41 @@ textarea:focus-visible {
 .app {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 10px 12px 12px;
 }
 
-header h1 {
+.loading {
+  margin: 8px 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 8px;
+}
+
+.toolbar select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.accuracy {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
 }
 
-header p,
+.status {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
 .note,
 .footer {
   margin: 4px 0 0;
@@ -73,20 +97,11 @@ header p,
   line-height: 1.4;
 }
 
-.row,
-.actions,
-.segmented {
+.actions {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
 }
 
 .field span,
@@ -104,11 +119,126 @@ textarea {
 }
 
 textarea {
-  min-height: 88px;
+  min-height: 72px;
   resize: vertical;
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
   border-radius: 4px;
+}
+
+.prompt-box {
+  min-height: 96px;
+  border: 0;
+  border-radius: 0;
+  padding: 8px 10px 4px;
+  resize: vertical;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, transparent));
+  border-radius: 8px;
+  background: var(--vscode-input-background);
+}
+
+.composer.accent-current {
+  border: 2px solid var(--vscode-charts-blue, var(--vscode-button-background));
+}
+
+.composer.accent-compared {
+  border: 2px solid var(--vscode-charts-orange, var(--vscode-charts-yellow, var(--vscode-button-background)));
+}
+
+.composer.drag,
+.composer.accent-current.drag,
+.composer.accent-compared.drag {
+  border-color: var(--vscode-focusBorder);
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 6px;
+}
+
+.composer-bar .note {
+  margin: 0;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+}
+
+.file-input {
+  display: none;
+}
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 8px 0;
+  list-style: none;
+}
+
+.attachments li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--vscode-editor-background);
+}
+
+.attachments img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+.attachment-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.attachment-copy strong,
+.attachment-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-copy span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.attachments button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+}
+
+button.text-button {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
 }
 
 .badge {
@@ -132,11 +262,233 @@ textarea {
   color: var(--vscode-button-foreground);
 }
 
-.token-count {
+.charts {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chart-empty {
   margin: 0;
-  font-size: 28px;
+  padding: 18px 12px;
+  border: 1px dashed var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+  border-radius: 8px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  min-width: 0;
+}
+
+@container (max-width: 150px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metric-tile,
+.chart-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+  border-radius: 8px;
+  background: var(--vscode-editor-background);
+}
+
+.metric-tile span,
+.meter-label,
+.legend span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.metric-tile strong {
+  display: block;
+  margin-top: 2px;
+  font-size: clamp(1.15rem, 14cqi, 1.7rem);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.metric-tile.compact strong {
+  font-size: clamp(0.95rem, 8cqi, 1.15rem);
+}
+
+.chart-card h3,
+.chart-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.chart-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.chart-mark {
+  width: 3px;
+  height: 14px;
+  border-radius: 99px;
+  flex: 0 0 auto;
+}
+
+.chart-toggle .caret {
+  flex: 0 0 auto;
+  transform: rotate(-90deg);
+}
+
+.chart-card.open .chart-toggle .caret {
+  transform: rotate(0deg);
+}
+
+.chart-body {
+  margin-top: 10px;
+}
+
+.chart-summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meter-head,
+.legend li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meter-label,
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.meter-label span,
+.legend span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter-head strong,
+.legend strong {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.meter-track,
+.stack {
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--vscode-input-background);
+  overflow: hidden;
+}
+
+.stack {
+  display: flex;
+  margin-top: 0;
+}
+
+.meter-fill,
+.stack span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.stack span {
+  border-radius: 0;
+}
+
+.meter-fill {
+  max-width: 100%;
+  border-radius: inherit;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  flex: 0 0 auto;
+}
+
+.tone-0 {
+  background: var(--vscode-charts-blue, var(--vscode-button-background));
+}
+
+.tone-1 {
+  background: var(--vscode-charts-orange, var(--vscode-charts-yellow, var(--vscode-button-background)));
+}
+
+.tone-2 {
+  background: var(--vscode-charts-green, var(--vscode-button-background));
+}
+
+.tone-3 {
+  background: var(--vscode-charts-purple, var(--vscode-button-background));
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chart-card .metric-tile {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.charts .warning,
+.charts .error,
+.charts .note {
+  overflow-wrap: anywhere;
 }
 
 .stats,

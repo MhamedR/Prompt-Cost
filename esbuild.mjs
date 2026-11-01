@@ -17,6 +17,7 @@ const extensionOptions = {
   absWorkingDir: root,
   entryPoints: {
     extension: "src/extension.ts",
+    mcp: "src/mcp/server.ts",
     "providers/openai": "src/tokenization/providers/openai.ts",
     "providers/anthropic": "src/tokenization/providers/anthropic.ts",
     "providers/gemini": "src/tokenization/providers/gemini.ts",
