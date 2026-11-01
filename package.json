@@ -1,0 +1,215 @@
+{
+  "name": "prompt-cost",
+  "displayName": "Prompt Cost",
+  "description": "Estimate LLM token usage and API cost for the current editor, selection, or two prompt versions. Counts run locally. No API key is required.",
+  "version": "0.1.0",
+  "publisher": "prompt-cost",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "token",
+    "tokenizer",
+    "llm",
+    "openai",
+    "anthropic",
+    "gemini",
+    "llama",
+    "mistral",
+    "deepseek",
+    "cost",
+    "prompt"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptCost.analyzeDocument",
+        "title": "Analyze Current Document",
+        "category": "PromptCost"
+      },
+      {
+        "command": "promptCost.analyzeSelection",
+        "title": "Analyze Selected Text",
+        "category": "PromptCost"
+      },
+      {
+        "command": "promptCost.open",
+        "title": "Open PromptCost",
+        "category": "PromptCost",
+        "icon": "$(symbol-numeric)"
+      },
+      {
+        "command": "promptCost.comparePrompts",
+        "title": "Compare Prompts",
+        "category": "PromptCost"
+      },
+      {
+        "command": "promptCost.countWithProviderApi",
+        "title": "Count Tokens with Provider API",
+        "category": "PromptCost"
+      },
+      {
+        "command": "promptCost.setApiKey",
+        "title": "Store Provider API Key",
+        "category": "PromptCost"
+      },
+      {
+        "command": "promptCost.clearApiKey",
+        "title": "Clear Provider API Key",
+        "category": "PromptCost"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "promptCost.analyzeSelection",
+          "when": "editorHasSelection",
+          "group": "promptCost@1"
+        },
+        {
+          "command": "promptCost.analyzeDocument",
+          "group": "promptCost@2"
+        },
+        {
+          "command": "promptCost.comparePrompts",
+          "group": "promptCost@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "promptCost.analyzeSelection",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prompt-cost",
+          "title": "PromptCost",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "prompt-cost": [
+        {
+          "type": "webview",
+          "id": "promptCost.dashboard",
+          "name": "PromptCost",
+          "icon": "$(symbol-numeric)",
+          "contextualTitle": "PromptCost"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PromptCost",
+      "properties": {
+        "promptCost.defaultProvider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "gemini",
+            "llama",
+            "mistral",
+            "deepseek"
+          ],
+          "default": "openai",
+          "description": "Provider used before a selection is saved in the sidebar."
+        },
+        "promptCost.defaultModel": {
+          "type": "string",
+          "default": "gpt-5.4",
+          "description": "Model id used before a selection is saved in the sidebar."
+        },
+        "promptCost.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the token and cost estimate in the status bar."
+        },
+        "promptCost.statusBar.source": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "document",
+            "selection"
+          ],
+          "enumDescriptions": [
+            "Count the selection when it is not empty, otherwise the document.",
+            "Always count the full document.",
+            "Count the selection. An empty selection counts as zero tokens."
+          ],
+          "default": "auto",
+          "description": "Which editor text the status bar counts."
+        },
+        "promptCost.expectedOutputTokens": {
+          "type": "number",
+          "default": 1024,
+          "minimum": 0,
+          "description": "Output tokens assumed by the cost estimate. The extension cannot know how long a completion will be."
+        },
+        "promptCost.maxCharacters": {
+          "type": "number",
+          "default": 1000000,
+          "minimum": 1000,
+          "description": "Documents longer than this are not tokenized, so the extension host stays responsive."
+        },
+        "promptCost.debounceMs": {
+          "type": "number",
+          "default": 200,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Wait this long after a keystroke before recounting."
+        },
+        "promptCost.apiCounting.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow an explicit action to send the analyzed text to Anthropic or Google for an official token count. Live counting stays on this machine. Keys stay in the extension secret store."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json",
+    "test": "vitest run",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links",
+    "publish:marketplace": "vsce publish --no-dependencies",
+    "publish:openvsx": "ovsx publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/vscode": "^1.93.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "ovsx": "^0.10.5",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  },
+  "dependencies": {
+    "@cyberlangke/tokkit-deepseek": "^1.11.0",
+    "ai-tokenizer": "^1.0.7",
+    "gpt-tokenizer": "^4.1.0",
+    "llama3-tokenizer-js": "^1.2.0",
+    "mistral-tokenizer-ts": "^2.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

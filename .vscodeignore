@@ -1,0 +1,14 @@
+.vscode/**
+src/**
+/node_modules/**
+.gitignore
+tsconfig.json
+tsconfig.webview.json
+esbuild.mjs
+vitest.config.ts
+**/*.map
+**/*.ts
+**/*.tsx
+resources/**
+!resources/icon.png
+!resources/icon.svg

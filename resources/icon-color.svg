@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="28" y1="12" x2="230" y2="248" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3c342c"/>
+      <stop offset="0.48" stop-color="#221c18"/>
+      <stop offset="1" stop-color="#100e0c"/>
+    </linearGradient>
+    <linearGradient id="backCoin" x1="96" y1="92" x2="206" y2="214" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c9852a"/>
+      <stop offset="1" stop-color="#7a4d12"/>
+    </linearGradient>
+    <linearGradient id="coin" x1="58" y1="42" x2="176" y2="186" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff6d2"/>
+      <stop offset="0.22" stop-color="#f8d56a"/>
+      <stop offset="0.62" stop-color="#e2a322"/>
+      <stop offset="1" stop-color="#b87412"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(92 78) rotate(-28) scale(70 42)">
+      <stop offset="0" stop-color="#fffdf4" stop-opacity="0.95"/>
+      <stop offset="0.42" stop-color="#ffe7a4" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffe7a4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="64" y1="52" x2="168" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff8df" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#a86a14" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#6a3e0c" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#tile)"/>
+  <rect x="1.25" y="1.25" width="253.5" height="253.5" rx="57" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5"/>
+  <circle cx="156" cy="156" r="58" fill="url(#backCoin)"/>
+  <circle cx="156" cy="156" r="46" fill="none" stroke="#f0c36a" stroke-opacity="0.28" stroke-width="3"/>
+  <circle cx="108" cy="108" r="74" fill="url(#coin)"/>
+  <circle cx="108" cy="108" r="74" fill="url(#shine)"/>
+  <circle cx="108" cy="108" r="60" fill="none" stroke="url(#rim)" stroke-width="3"/>
+  <path d="M74 66 L164 108 L74 150" fill="none" stroke="#24180d" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

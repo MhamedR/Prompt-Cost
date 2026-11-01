@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": [
+    "src/webview-ui/**/*.ts",
+    "src/webview-ui/**/*.tsx",
+    "src/webview/protocol.ts",
+    "src/types.ts",
+    "src/analysis/format.ts"
+  ]
+}
