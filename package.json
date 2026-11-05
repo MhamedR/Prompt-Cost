@@ -2,7 +2,7 @@
   "name": "prompt-cost",
   "displayName": "Prompt Cost",
   "description": "Estimate LLM token usage and API cost for a prompt, attached files, or two prompt versions. Counts run locally. No API key is required.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "prompt-cost",
   "license": "MIT",
   "homepage": "https://github.com/MhamedR/Prompt-Cost",
